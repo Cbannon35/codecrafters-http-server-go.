@@ -89,6 +89,16 @@ func handleConnection(conn net.Conn) {
 	fmt.Println("Request: ", req.Method, req.Path, req.Headers, req.Body)
 
 	switch path := req.Path; {
+	case strings.HasPrefix(path, "/files"):
+		fileName := strings.TrimPrefix(path, "/files/")
+		dir := os.Args[2]
+		data, err := os.ReadFile(dir + fileName)
+		if err != nil {
+			writeToConnection(conn, []byte("HTTP/1.1 404 Not Found\r\n\r\n"))
+			return
+		}
+		response := createResponse("HTTP/1.1 200 OK", []string{"Content-Type: application/octet-stream", "Content-Length: " + fmt.Sprint(len(data))}, string(data))
+		writeToConnection(conn, []byte(response))
 	case strings.HasPrefix(path, "/echo"):
 		content := strings.TrimPrefix(path, "/echo/")
 		response := createResponse("HTTP/1.1 200 OK", []string{"Content-Type: text/plain", "Content-Length: " + fmt.Sprint(len(content))}, content)
