@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"net"
 	"os"
@@ -56,16 +55,22 @@ func createResponse(status string, headers []string, body string) string {
 }
 
 // @Citation: https://app.codecrafters.io/users/Powerisinschool
-func parseRequest(scanner *bufio.Scanner) (*HTTPRequest, error) {
+func parseRequest(buf []byte) (*HTTPRequest, error) {
 	var req HTTPRequest = HTTPRequest{}
 	req.Headers = make(map[string]string)
-	for i := 0; scanner.Scan(); i++ {
+	lines := strings.Split(string(buf), "\r\n")
+	fmt.Println(lines)
+	for i, line := range lines {
 		if i == 0 {
-			req.Method = strings.Split(scanner.Text(), " ")[0]
-			req.Path = strings.Split(scanner.Text(), " ")[1]
+			req.Method = strings.Split(line, " ")[0]
+			req.Path = strings.Split(line, " ")[1]
 			continue
 		}
-		headers := strings.Split(scanner.Text(), ": ")
+		if line == "" {
+			req.Body = strings.Join(lines[i+1:], "\r\n")
+			break
+		}
+		headers := strings.Split(line, ": ")
 		if len(headers) < 2 {
 			req.Body = headers[0]
 			break
@@ -77,9 +82,13 @@ func parseRequest(scanner *bufio.Scanner) (*HTTPRequest, error) {
 
 func handleConnection(conn net.Conn) {
 	defer conn.Close()
-
-	scanner := bufio.NewScanner(conn)
-	req, err := parseRequest(scanner)
+	buf := make([]byte, 1024)
+	_, err := conn.Read(buf)
+	if err != nil {
+		fmt.Println("Error handling request: ", err.Error())
+		os.Exit(1)
+	}
+	req, err := parseRequest(buf)
 
 	if err != nil {
 		fmt.Fprintln(conn, "reading standard input:", err)
@@ -91,14 +100,26 @@ func handleConnection(conn net.Conn) {
 	switch path := req.Path; {
 	case strings.HasPrefix(path, "/files"):
 		fileName := strings.TrimPrefix(path, "/files/")
+		// dir := flag.Lookup("directory").Value.String()
 		dir := os.Args[2]
-		data, err := os.ReadFile(dir + fileName)
-		if err != nil {
-			writeToConnection(conn, []byte("HTTP/1.1 404 Not Found\r\n\r\n"))
-			return
+		switch method := req.Method; {
+		case method == "GET":
+			data, err := os.ReadFile(dir + fileName)
+			if err != nil {
+				writeToConnection(conn, []byte("HTTP/1.1 404 Not Found\r\n\r\n"))
+				return
+			}
+			response := createResponse("HTTP/1.1 200 OK", []string{"Content-Type: application/octet-stream", "Content-Length: " + fmt.Sprint(len(data))}, string(data))
+			writeToConnection(conn, []byte(response))
+
+		case method == "POST":
+			content := strings.Trim(req.Body, "\x00")
+			err = os.WriteFile(dir+fileName, []byte(content), 0644)
+			if err != nil {
+				writeToConnection(conn, []byte("HTTP/1.1 500 Internal Server Error\r\n\r\n"))
+			}
+			writeToConnection(conn, []byte("HTTP/1.1 201 Created\r\n\r\n"))
 		}
-		response := createResponse("HTTP/1.1 200 OK", []string{"Content-Type: application/octet-stream", "Content-Length: " + fmt.Sprint(len(data))}, string(data))
-		writeToConnection(conn, []byte(response))
 	case strings.HasPrefix(path, "/echo"):
 		content := strings.TrimPrefix(path, "/echo/")
 		response := createResponse("HTTP/1.1 200 OK", []string{"Content-Type: text/plain", "Content-Length: " + fmt.Sprint(len(content))}, content)
