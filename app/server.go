@@ -1,54 +1,29 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"net"
 	"os"
 	"strings"
 )
 
-func setupListener() net.Listener {
-	listener, err := net.Listen("tcp", "0.0.0.0:4221")
+// @Citation: https://app.codecrafters.io/users/Powerisinschool
+type HTTPRequest struct {
+	Method    string
+	Path      string
+	Headers   map[string]string
+	Body      string
+}
+
+func main() {
+	l, err := net.Listen("tcp", "0.0.0.0:4221")
 	if err != nil {
 		fmt.Println("Failed to bind to port 4221")
 		os.Exit(1)
 	}
-	return listener
-}
-
-func writeToConnection(conn net.Conn, message []byte) {
-	_, err := conn.Write([]byte(message))
-	if err != nil {
-		fmt.Println("Can't write to connection: ", err.Error())
-		return
-	}
-}
-
-func parseRequest(conn net.Conn) []string {
-	req := make([]byte, 1024)
-	n, err := conn.Read(req)
-	if err != nil {
-		fmt.Println("Can't read from connection: ", err.Error())
-		return nil
-	}
-	return strings.Split(string(req[:n]), "\r\n")
-}
-
-func createResponse(status []byte, headers []string, body string) string {
-	response := string(status) + "\r\n"
-	for _, header := range headers {
-		response += header + "\r\n"
-	}
-	response += "\r\n"
-	if body != "" {
-		response += body
-	}
-	return response
-}
-
-func main() {
-	l := setupListener()
 	defer l.Close()
+
 	for {
 		conn, err := l.Accept()
 		if err != nil {
@@ -60,32 +35,72 @@ func main() {
 	}
 }
 
-func handleConnection(conn net.Conn) {
-	defer conn.Close()
-	fmt.Println("Handling connection")
-	request := parseRequest(conn)
-
-	if request == nil || len(request) < 3 {
-		fmt.Println("Invalid request?")
+func writeToConnection(conn net.Conn, message []byte) {
+	_, err := conn.Write([]byte(message))
+	if err != nil {
+		fmt.Println("Can't write to connection: ", err.Error())
 		return
 	}
+}
 
-	requestLine := strings.Split(request[0], " ")
-
-	endpoint := requestLine[1]
-
-	if endpoint == "/" {
-		response := createResponse([]byte("HTTP/1.1 200 OK"), nil, "")
-		writeToConnection(conn, []byte(response))
-	} else if strings.HasPrefix(endpoint, "/echo") {
-		text := strings.TrimPrefix(endpoint, "/echo/")
-		fmt.Println("Echoing: ", text)
-		headers := []string{"Content-Type: text/plain", "Content-Length: " + fmt.Sprint(len(text))}
-		response := createResponse([]byte("HTTP/1.1 200 OK"), headers, text)
-		writeToConnection(conn, []byte(response))
-	} else {
-		response := createResponse([]byte("HTTP/1.1 404 Not Found"), nil, "")
-		writeToConnection(conn, []byte(response))
+func createResponse(status string, headers []string, body string) string {
+	response := string(status) + "\r\n"
+	for _, header := range headers {
+		response += header + "\r\n"
 	}
-	conn.Close()
+	response += "\r\n"
+	if body != "" {
+		response += body
+	}
+	return response
+}
+
+// @Citation: https://app.codecrafters.io/users/Powerisinschool
+func parseRequest(scanner *bufio.Scanner) (*HTTPRequest, error) {
+	var req HTTPRequest = HTTPRequest{}
+	req.Headers = make(map[string]string)
+	for i := 0; scanner.Scan(); i++ {
+		if i == 0 {
+			req.Method = strings.Split(scanner.Text(), " ")[0]
+			req.Path = strings.Split(scanner.Text(), " ")[1]
+			continue
+		}
+		headers := strings.Split(scanner.Text(), ": ")
+		if len(headers) < 2 {
+			req.Body = headers[0]
+			break
+		}
+		req.Headers[headers[0]] = headers[1]
+	}
+	return &req, nil
+}
+
+func handleConnection(conn net.Conn) {
+	defer conn.Close()
+
+	scanner := bufio.NewScanner(conn)
+	req, err := parseRequest(scanner)
+
+	if err != nil {
+		fmt.Fprintln(conn, "reading standard input:", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("Request: ", req.Method, req.Path, req.Headers, req.Body)
+
+	switch path := req.Path; {
+	case strings.HasPrefix(path, "/echo"):
+		content := strings.TrimPrefix(path, "/echo/")
+		response := createResponse("HTTP/1.1 200 OK", []string{"Content-Type: text/plain", "Content-Length: " + fmt.Sprint(len(content))}, content)
+		writeToConnection(conn, []byte(response))
+	case path == "/user-agent":
+		body := req.Headers["User-Agent"]
+		response := createResponse("HTTP/1.1 200 OK", []string{"Content-Type: text/plain", "Content-Length: " + fmt.Sprint(len(body))}, body)
+		writeToConnection(conn, []byte(response))
+	case path == "/":
+		fmt.Print("Root path requested")
+		writeToConnection(conn, []byte("HTTP/1.1 200 OK\r\n"))
+	default:
+		writeToConnection(conn, []byte("HTTP/1.1 404 Not Found\r\n"))
+	}
 }
