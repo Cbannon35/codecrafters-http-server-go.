@@ -34,6 +34,18 @@ func parseRequest(conn net.Conn) []string {
 	return strings.Split(string(req[:n]), "\r\n")
 }
 
+func createResponse(status []byte, headers []string, body string) string {
+	response := string(status) + "\r\n"
+	for _, header := range headers {
+		response += header + "\r\n"
+	}
+	response += "\r\n"
+	if body != "" {
+		response += body
+	}
+	return response
+}
+
 func main() {
 	l := setupListener()
 	defer l.Close()
@@ -60,10 +72,20 @@ func handleConnection(conn net.Conn) {
 
 	requestLine := strings.Split(request[0], " ")
 
-	if requestLine[1] != "/" {
-		writeToConnection(conn, []byte("HTTP/1.1 404 Not Found\r\n\r\n"))
+	endpoint := requestLine[1]
+
+	if endpoint == "/" {
+		response := createResponse([]byte("HTTP/1.1 200 OK"), nil, "")
+		writeToConnection(conn, []byte(response))
+	} else if strings.HasPrefix(endpoint, "/echo") {
+		text := strings.TrimPrefix(endpoint, "/echo/")
+		fmt.Println("Echoing: ", text)
+		headers := []string{"Content-Type: text/plain", "Content-Length: " + fmt.Sprint(len(text))}
+		response := createResponse([]byte("HTTP/1.1 200 OK"), headers, text)
+		writeToConnection(conn, []byte(response))
 	} else {
-		writeToConnection(conn, []byte("HTTP/1.1 200 OK\r\n\r\n"))
+		response := createResponse([]byte("HTTP/1.1 404 Not Found"), nil, "")
+		writeToConnection(conn, []byte(response))
 	}
 	conn.Close()
 }
