@@ -101,6 +101,6 @@ func handleConnection(conn net.Conn) {
 		fmt.Print("Root path requested")
 		writeToConnection(conn, []byte("HTTP/1.1 200 OK\r\n"))
 	default:
-		writeToConnection(conn, []byte("HTTP/1.1 404 Not Found\r\n"))
+		writeToConnection(conn, []byte("HTTP/1.1 404 Not Found\r\n\r\n"))
 	}
 }
