@@ -99,7 +99,7 @@ func handleConnection(conn net.Conn) {
 		writeToConnection(conn, []byte(response))
 	case path == "/":
 		fmt.Print("Root path requested")
-		writeToConnection(conn, []byte("HTTP/1.1 200 OK\r\n"))
+		writeToConnection(conn, []byte("HTTP/1.1 200 OK\r\n\r\n"))
 	default:
 		writeToConnection(conn, []byte("HTTP/1.1 404 Not Found\r\n\r\n"))
 	}
